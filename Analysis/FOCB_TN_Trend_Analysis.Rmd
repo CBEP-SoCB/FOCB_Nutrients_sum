@@ -1,0 +1,363 @@
+---
+title: "Analysis of Friends of Casco Bay TN Data"
+author: "Curtis C. Bohlen, Casco Bay Estuary Partnership."
+date: "04/26/2021"
+output:
+  github_document:
+    toc: true
+    fig_width: 5
+    fig_height: 4
+---
+
+<img
+    src="https://www.cascobayestuary.org/wp-content/uploads/2014/04/logo_sm.jpg"
+    style="position:absolute;top:10px;right:50px;" />
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.align = 'center',
+                      fig.width = 5, fig.height = 4,
+                      collapse = TRUE, comment = "#>")
+```
+
+# Introduction
+This notebook Looks at TN numbers from Friends of Casco Bay samples.
+
+# Load Libraries
+```{r load_libraries}
+library(MASS) # for `rlm()` ans `lqs()`for robust regression
+              # also `cov.rob()` for robust multivariate scatter and covariance.
+              # Because MASS contains a function `select()` that conflicts with
+              # the tidyverse `select()` function, `MASS` should be loaded before
+              # the tidyverse.
+
+#library(readr)
+library(readxl)
+library(tidyverse)
+
+library(mgcv)    # For generalized linear models
+#library(mblm)     # for median-based linear\models -- suitable for simple robust methods.
+library(emmeans)
+library(moments)  # for skewness and kurtosis)
+
+library(sfsmisc)  # Provides alternative access to Wald test for robust models
+
+#library(Ternary) # Base graphics ternary plots
+
+library(CBEPgraphics)
+load_cbep_fonts()
+theme_set(theme_cbep())
+```
+
+# Load Data
+## Folder References
+```{r folder_refs}
+sibfldnm <- 'Derived_Data'
+parent <- dirname(getwd())
+sibling <- file.path(parent,sibfldnm)
+
+#dir.create(file.path(getwd(), 'figures'), showWarnings = FALSE)
+```
+
+## Load Data
+The data we use here has had a number of suspiciously high NH4 values removed.
+See "FOCB_Nutrients_Combined.Rmd" for details and explanation.
+```{r load_data}
+strict_data <- read_csv(file.path(sibling, 
+                                 "focb_n_data_strict.csv"))%>%
+  mutate(month = factor(month, levels = month.abb),
+         yearf = factor(year)) %>%
+  mutate(dt = as.Date(dt))
+```
+
+# Station Names
+```{r folder_refs_2}
+fn <- 'FOCB Monitoring Sites SHORT NAMES.xlsx'
+names_df <- read_excel(file.path(sibling, fn))
+```
+
+# Data Review
+## Data Prevalence
+```{r data_prevalence}
+xtabs(~station + year, data = strict_data[! is.na(strict_data$tn),])
+```
+TN shows a similar, if more sparse, sampling pattern, with most samples at just
+a handful of sites before 2017.  Data coverage is fairly consistent across sites,
+but with uneven quantities year to year from 2017, 2018, and 2019.
+
+## Data Distributions
+```{r tn)hist}
+ggplot(strict_data , aes(tn)) +
+  geom_histogram()
+```
+
+### Outliers Or Errors?
+The extreme TN values are perhaps suspect. The TN >> 3 has a huge effect on most 
+models, but we have no information from FOCB that these values are in error.
+
+```{r outliers}
+strict_data %>%
+  filter(tn > 1.25) %>%
+  select(-contains('depth'), -c(nox:din)) %>%
+  mutate(ratio = din_N / tn) %>%
+  relocate(ratio, .before = tn)
+```
+
+NOx and NH4 values are not also high. Two of the samples have din:tn ratios
+under 2.5%.  That is not, of course, impossible, but it tends to support the
+idea that there may have been a problem.  The median din:tn ratio for three of
+the four sites is close to 20%, so these are unusual observations in that way as
+well.
+
+```{r din_tn_ratios}
+strict_data %>%
+  filter(station %in% c('HR4', 'NMM79', 'SMT50', 'STR54')) %>%
+  select(-contains('depth'), -c(nox:din)) %>%
+  mutate(ratio = din_N / tn) %>%
+  group_by(station) %>%
+  summarize(max_tn = max(tn, na.rm = TRUE),
+            med_ratio = median(ratio, na.rm = TRUE))
+```
+
+The NMM79 record has a DIN:TN ration in keeping with other observations at that
+site.  We can not evaluate a DIN:TN ratio for the high TN observation at STR54.
+
+# Trend Data
+Few stations have data from more than a few years.  TN data has been collected 
+over the past couple of years, at several stations in the mid 2000s, and at a
+handful of stations pretty much every year since 2001.  Generally the rule we 
+have used to examine trends is to focus on sites with relatively complete 
+records, say at least two of the last five years and at least
+ten years total.  
+
+## Identify Trend Stations
+```{r which_stations}
+trend_sites <- strict_data %>%
+  group_by(station, year) %>%
+  summarize(was_sampled =  ! all(is.na(tn)),
+            .groups = 'drop_last') %>%
+  summarize(last_5 = sum(was_sampled & year > 2014),
+            total = sum(was_sampled),
+            .groups = 'drop') %>%
+  filter(total >= 10, last_5 >= 2) %>%
+  pull(station)
+trend_sites
+```
+
+## Generate Trend Data
+Note that we remove the extreme values here.
+```{r make_trend_data}
+trend_data <- strict_data %>%
+   filter(station %in% trend_sites) %>%
+   mutate(tn = if_else(tn <= 0 | tn >= 1.5, NA_real_, tn)) %>%
+   filter(! is.na(tn)) %>%
+   mutate(station_name = names_df$Alt_Name[match(station,
+                                                names_df$Station_ID)]) %>%
+   mutate(station = factor(station),
+          station_name = factor(station_name)) %>%
+   mutate(station = fct_reorder(station, tn, na.rm = TRUE),
+         station_name = fct_reorder(station_name, tn, na.rm = TRUE)) %>%
+   relocate(station_name, .after = station) %>%
+   select(-contains('n_N', ignore.case = FALSE), -contains('depth'), -organic_N)
+```
+
+### Data Distribution
+```{r trend_data_histogram}
+ggplot(trend_data, aes(tn)) +
+  geom_histogram()
+```
+
+
+### Data Prevalence
+```{r trend_data_months}
+xtabs(~ month + station, data = trend_data )%>%
+  as_tibble() %>%
+  mutate(month = factor(month, levels = month.abb)) %>%
+  filter(n>0) %>%
+
+  ggplot(aes(station, month, fill = sqrt(n))) +
+  geom_tile() +
+  theme_cbep(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .25))
+```
+
+```{r trend_data_years}
+xtabs(~ year + station, data = trend_data) %>%
+  as_tibble() %>% 
+  filter(n>0) %>%
+
+  ggplot(aes(station, year, fill = sqrt(n))) +
+  geom_tile() +
+  theme_cbep(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .25))
+```
+
+```{r trend_data_times}
+xtabs(~ year + month, data = trend_data) %>%
+  as_tibble() %>% 
+  mutate(month = factor(month, levels = month.abb))  %>%
+  filter(n>0) %>%
+
+  ggplot(aes(month, year, fill = sqrt(n))) +
+  geom_tile() +
+  theme_cbep(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .25))
+```
+
+We see the change in FOCB monitoring practices in 2017.  Winter data is not
+available in recent_years. If there are seasonal TN trends, annual averages may
+be biased.
+
+## Generate Core Months Trend Data
+```{r make_core_months_data}
+core_months_data <- trend_data %>%
+  filter(month %in% month.abb[5:10])
+```
+
+## Models
+### Initial Linear Model
+```{r trend_lm_1}
+trnd_lm_1 <- lm(log(tn) ~ (year + station_name + month)^2 , 
+                data = core_months_data)
+anova(trnd_lm_1)
+```
+Note that in this setting, there is no reason to believe all stations show the 
+same trend, so a model that does not fit trends separately for each station
+(via station x year interaction term) is of limited value, even if the model
+(as here) suggests the interaction is not important.
+
+We could be more cautious about claiming a trend by fitting a hierarchical model
+that treats years as a random factor as well.  That would account for high
+intra-year autocorrelation. We choose not to do that here.
+
+```{r trend_lm_step}
+trnd_lm_2 <- step(trnd_lm_1)
+```
+
+```{r anova_trend_lm_2}
+anova(trnd_lm_2)
+```
+
+```{r summary_trend_lm_2}
+summary(trnd_lm_2)
+```
+
+So the obvious linear model analysis suggests there is a weak negative linear
+trend, and there are no differences in trend among stations.
+
+The month to month terms have high standard errors, and the possible interaction
+rests principally on the month of August.
+
+```{r trend_lm_2_diagnostics}
+oldpar <- par(mfrow=c(2,2))
+plot(trnd_lm_2)
+par(oldpar)
+```
+Other than the heavy tails and slight skewness of the residuals, model
+diagnostics are pretty good, suggesting these conclusions will be robust to most
+other reasonable model specifications.
+
+### Check for Non-linear Patterns
+We start by fitting a polynomial 
+```{r trend_polynomial}
+trnd_lm_3 <- lm(log(tn) ~ poly(year,2) + station + poly(year,2):station + 
+                                month + month:year, data = core_months_data)
+anova(trnd_lm_3)
+anova(trnd_lm_2, trnd_lm_3, test = 'F')
+```
+
+So there is no evidence that we need the non-linear terms to capture the 
+long-term trend.
+
+### Final Linear Model
+We force-fit separate slopes for each station, and drop the year by month 
+interaction term as being of limited interest, and possibly misleading.
+```{r trend_lm_final}
+trnd_lm <- lm(log(tn) ~ station_name + station_name:year + month,
+                data = core_months_data)
+anova(trnd_lm)
+summary(trnd_lm)
+```
+
+Note that we have significant trends at three sites:  Broad Sound, Clapboard 
+Island, and Fort Gorges.
+
+#Trend Graphics Ideas
+### Jitter Plot By Year
+```{r core_months_jitter_plot_by_yr, fig.height = 7, fig.width = 3}
+ggplot(core_months_data, aes(year, tn,)) +
+  geom_jitter(aes(color = station_name)) + 
+  stat_summary(fun = mean, geom = 'line', lwd = 1) +
+  scale_y_log10() +
+  facet_wrap(~station_name, nrow = 5) +
+  scale_color_manual(values = cbep_colors()) +
+  theme_cbep(base_size = 12) +
+  theme(legend.position = 'None')
+```
+
+### Actual Dates
+```{r make_core_months_summary}
+core_months_summary  <-   core_months_data %>%
+  select(station_name, year, tn) %>%
+  group_by(station_name, year) %>%
+  summarize(ann_mn_tn = mean(tn, na.rm = TRUE),
+            .groups = 'drop_last') %>%
+  filter(! is.na(ann_mn_tn)) %>%
+  mutate(dt = as.Date (paste0('06-15-', year), format = '%m-%d-%Y'))
+```
+
+
+```{r core_months_plot_by_date, fig.height = 7, fig.width = 3}
+ggplot(core_months_data) +
+  geom_point(aes(dt, tn, color = station_name), alpha = 0.5) + 
+  geom_line(data = core_months_summary, 
+            mapping = aes(x = dt, y = ann_mn_tn), 
+            lwd = 1,
+            color = cbep_colors()[3]) +
+  scale_y_continuous(trans = 'log1p') +
+  facet_wrap(~station_name, nrow = 5) +
+  scale_color_viridis_d(option = 'viridis') +
+  theme_cbep(base_size = 12) +
+  theme(legend.position = 'None',
+        panel.spacing.x = unit(2.5, "lines")) +
+  xlab('') +
+  ylab('TN (mg/l)')
+```
+
+## Using Estimated Marginal Means
+```{r}
+emms_tn <- emmeans(trnd_lm, c('station_name', 'year'), cov.keep = 'year', type = 'response')
+```
+
+
+```{r}
+emms_df <- as.tibble(emms_tn) %>%
+  mutate(dt  = as.Date(paste0(year, '-06-10')))
+ggplot(emms_df, aes(dt, response, color = station_name)) +
+  geom_line() +
+  geom_linerange(aes(ymin = lower.CL, ymax = upper.CL))
+```
+
+```{r}
+emms_sig_df <-  emms_df %>%
+  filter(station_name %in% c('Broad Sound', 'Clapboard Island',  'Fort Gorges'))
+```
+
+
+```{r core_months_plot_by_date_emms, fig.height = 7, fig.width = 3}
+ggplot(core_months_data) +
+  geom_point(aes(dt, tn, color = station_name)) + 
+  geom_line(data = emms_sig_df, 
+            mapping = aes(x = dt, y = response), 
+            lwd = 1,
+            color = cbep_colors()[3]) +
+  scale_y_continuous(trans = 'log1p') +
+  facet_wrap(~station_name, nrow = 5) +
+  scale_color_viridis_d(option = 'viridis') +
+  theme_cbep(base_size = 12) +
+  theme(legend.position = 'None',
+        panel.grid.major.y = element_line(color = 'gray85'),
+        strip.text.y = element_text(size = 9)) +
+  xlab('') +
+  ylab('Total Nitrogen (mg/l)')
+
+```
