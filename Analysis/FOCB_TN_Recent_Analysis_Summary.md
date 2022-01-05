@@ -643,7 +643,7 @@ ggplot(compare, aes(tn_mn, response)) +
 
 <img src="FOCB_TN_Recent_Analysis_Summary_files/figure-gfm/compare_18_19_rlm-1.png" style="display: block; margin: auto;" />
 
-The Robust model generally predicts slightly lower values. THe fit to a
+The Robust model generally predicts slightly lower values. The fit to a
 couple of sites is not all that good.
 
 ### GAM Model
