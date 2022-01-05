@@ -5,7 +5,7 @@ here principally because we handled some data inconsistencies by replacing
 a fairly large number of extreme ammonium values with NA, thus removing them
 from our data, and potentially biasing some results.  The trimming had no 
 effect on the results reported in SoCB, as we did not report on DIN, but the
-choice does affect teh contents of our working data, `focb_n_data_strict.csv`.  
+choice does affect the contents of our working data, `focb_n_data_strict.csv`.  
 While we believe our data QA/QC choices to be justified, we provide the raw data 
 so other investigators can make different choices.
 
@@ -38,7 +38,7 @@ Year               | Year pf sample collection (four digit) | Integer
 ## Derived Data
 ### `FOCB Monitoring Sites SHORT NAMES.xlsx`
 This file is a hand edited version of data received directly from Friends of
-Casco Bay.   The only change is the addition of a column containing shorter
+Casco Bay. The only change is the addition of a column containing shorter
 names for FOCB sampling locations, for use in SoCB graphics.
 
 Column Name     | Contents                                      
@@ -54,7 +54,7 @@ Category        | "Surface" site or "Profile" site.
 ### `focb_n_data_strict.csv`
 This file contains our primary "working" data. Time data has been dropped, we
 replaced suspect ammonium data with NAs, and converted all N concentration data
-to  milligrams per liter as nitrogen t ofacilitate comparisons.  see 
+to  milligrams per liter as nitrogen t ofacilitate comparisons. See 
 `FOCB_Nutrients_Combined_sum.Rmd` for details.
 
 Column Name  |   Contents                          | units
