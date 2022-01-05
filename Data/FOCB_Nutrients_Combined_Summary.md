@@ -55,7 +55,7 @@ flagged as in error.
 We conclude that many of the highest ammonium observations are not
 credible, so we replace those values with NA before generating a
 “strict” version of the data. We ultimately decide drop ammonium data in
-the top 5% of all the reported ammonium values,a nd also drop ammonium
+the top 5% of all the reported ammonium values, and also drop ammonium
 values from samples where calculated DIN is greater than TN.
 
 # Load Libraries
