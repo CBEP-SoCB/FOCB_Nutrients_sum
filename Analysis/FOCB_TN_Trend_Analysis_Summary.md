@@ -23,6 +23,9 @@ Curtis C. Bohlen, Casco Bay Estuary Partnership.
         -   [Check for Non-linear
             Patterns](#check-for-non-linear-patterns)
         -   [Final Linear Model](#final-linear-model)
+-   [Median-Based Models](#median-based-models)
+    -   [Identify Significant
+        Regressions](#identify-significant-regressions)
 
 <img
     src="https://www.cascobayestuary.org/wp-content/uploads/2014/04/logo_sm.jpg"
@@ -55,6 +58,8 @@ library(mgcv)    # For generalized linear models
 #>     collapse
 #> This is mgcv 1.8-38. For overview type 'help("mgcv-package")'.
 library(emmeans)
+
+library(mblm)     # Median-based linear models - -but only single predictor
 
 library(CBEPgraphics)
 load_cbep_fonts()
@@ -464,5 +469,150 @@ summary(trnd_lm)
 #> F-statistic: 9.184 on 14 and 314 DF,  p-value: < 2.2e-16
 ```
 
-Note that we have significant trends at three sites: Broad Sound,
-Clapboard Island, and Fort Gorges.
+We have significant trends at three sites: Broad Sound, Clapboard
+Island, and Fort Gorges.
+
+# Median-Based Models
+
+We double check regression results using more robust regression. There
+is little indication that this is strictly necessary, as model
+diagnostics are not too bad, but it’s worth checking all the same.
+
+We set up a nested tibble to hold multiple models.
+
+``` r
+mods <-trend_data %>%
+  group_by(station) %>%
+  summarize(station = first(station), .groups = 'drop')
+```
+
+``` r
+lmods <- list()
+for (n in seq_along(mods$station)) {
+  site <- mods$station[n]
+  tmp <- trend_data %>%
+    filter(station == site) %>%
+    mutate(logval = log(tn))
+  rlm <- mblm(logval ~ year, data = tmp)
+  lmods[[site]] <- rlm
+}
+
+mods$rlm <- lmods
+rm(lmods, rlm, tmp, site)
+```
+
+## Identify Significant Regressions
+
+From the log-linear models. We use P &lt; 0.025 because of relatively
+poor model diagnostics. We don’t want to trust “borderline” P values,
+and we don’t want to go to the trouble (for this purpose) of using
+bootstraps or other methods to assess confidence limits more rigorously.
+
+``` r
+rlm_p_vals <- lapply(mods$rlm, function(m) summary(m)$coefficients[2,4])
+#> Warning in wilcox.test.default(z$slopes): cannot compute exact p-value with ties
+#> Warning in wilcox.test.default(z$slopes): cannot compute exact p-value with
+#> zeroes
+#> Warning in wilcox.test.default(z$slopes): cannot compute exact p-value with ties
+#> Warning in wilcox.test.default(z$slopes): cannot compute exact p-value with
+#> zeroes
+names(rlm_p_vals) <- mods$station
+cat('\n')
+rlm_p_vals
+#> $P5BSD
+#> [1] 1.08521e-08
+#> 
+#> $P7CBI
+#> [1] 1.50188e-06
+#> 
+#> $PKT42
+#> [1] 0.384766
+#> 
+#> $P6FGG
+#> [1] 0.004843989
+#> 
+#> $SMT50
+#> [1] 0.09526589
+```
+
+We also like to check significance using the closely related Kendall’s
+Tau.
+
+``` r
+for (n in seq_along(mods$station)) {
+  site <- mods$station[n]
+  tmp <- trend_data %>%
+    filter(station == site)
+   cat(paste0('\n', site, '\n'))
+   print(cor.test(log(tmp$tn), tmp$year, method = 'kendall')) }
+#> 
+#> P5BSD
+#> 
+#>  Kendall's rank correlation tau
+#> 
+#> data:  log(tmp$tn) and tmp$year
+#> z = -3.6161, p-value = 0.0002991
+#> alternative hypothesis: true tau is not equal to 0
+#> sample estimates:
+#>        tau 
+#> -0.2637678 
+#> 
+#> 
+#> P7CBI
+#> 
+#>  Kendall's rank correlation tau
+#> 
+#> data:  log(tmp$tn) and tmp$year
+#> z = -3.4048, p-value = 0.0006622
+#> alternative hypothesis: true tau is not equal to 0
+#> sample estimates:
+#>        tau 
+#> -0.2485674 
+#> 
+#> 
+#> PKT42
+#> 
+#>  Kendall's rank correlation tau
+#> 
+#> data:  log(tmp$tn) and tmp$year
+#> z = -0.50945, p-value = 0.6104
+#> alternative hypothesis: true tau is not equal to 0
+#> sample estimates:
+#>         tau 
+#> -0.05118027 
+#> 
+#> 
+#> P6FGG
+#> 
+#>  Kendall's rank correlation tau
+#> 
+#> data:  log(tmp$tn) and tmp$year
+#> z = -1.6869, p-value = 0.09162
+#> alternative hypothesis: true tau is not equal to 0
+#> sample estimates:
+#>        tau 
+#> -0.1205198 
+#> 
+#> 
+#> SMT50
+#> 
+#>  Kendall's rank correlation tau
+#> 
+#> data:  log(tmp$tn) and tmp$year
+#> z = -0.90417, p-value = 0.3659
+#> alternative hypothesis: true tau is not equal to 0
+#> sample estimates:
+#>         tau 
+#> -0.05814425
+```
+
+``` r
+cor(log(tmp$tn), tmp$year, method = 'kendall')
+#> [1] -0.05814425
+```
+
+That shows similar results, but throws the significant decline at Quahog
+Bay into question (0.1 &lt; p &lt; 0.05) as well. That reflects the
+importance of one relatively high TN value from the early part of the
+record. It may also reflect the sparse modeling. MBLM is unable to
+handle multiple predictors, so we can not account for season here.

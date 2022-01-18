@@ -30,6 +30,8 @@ library(tidyverse)
 library(mgcv)    # For generalized linear models
 library(emmeans)
 
+library(mblm)     # Median-based linear models - -but only single predictor
+
 library(CBEPgraphics)
 load_cbep_fonts()
 theme_set(theme_cbep())
@@ -239,6 +241,68 @@ anova(trnd_lm)
 summary(trnd_lm)
 ```
 
-Note that we have significant trends at three sites:  Broad Sound, Clapboard 
+We have significant trends at three sites:  Broad Sound, Clapboard 
 Island, and Fort Gorges.
+
+# Median-Based Models
+We double check regression results using more robust regression.  There is
+little indication that this is strictly necessary, as model diagnostics are not
+too bad, but it's worth checking all the same.
+
+We set up a nested tibble to hold multiple models.
+
+```{r}
+mods <-trend_data %>%
+  group_by(station) %>%
+  summarize(station = first(station), .groups = 'drop')
+```
+
+```{r}
+lmods <- list()
+for (n in seq_along(mods$station)) {
+  site <- mods$station[n]
+  tmp <- trend_data %>%
+    filter(station == site) %>%
+    mutate(logval = log(tn))
+  rlm <- mblm(logval ~ year, data = tmp)
+  lmods[[site]] <- rlm
+}
+
+mods$rlm <- lmods
+rm(lmods, rlm, tmp, site)
+```
+
+## Identify Significant Regressions
+From the log-linear models.  We use P < 0.025 because of relatively poor model
+diagnostics.  We don't want to trust "borderline" P values, and we don't want to
+go to the trouble (for this purpose) of using bootstraps or other methods to
+assess confidence limits more rigorously.
+
+```{r}
+rlm_p_vals <- lapply(mods$rlm, function(m) summary(m)$coefficients[2,4])
+names(rlm_p_vals) <- mods$station
+cat('\n')
+rlm_p_vals
+```
+
+We also like to check significance using the closely related Kendall's Tau.
+
+```{r}
+for (n in seq_along(mods$station)) {
+  site <- mods$station[n]
+  tmp <- trend_data %>%
+    filter(station == site)
+   cat(paste0('\n', site, '\n'))
+   print(cor.test(log(tmp$tn), tmp$year, method = 'kendall')) }
+```
+```{r}
+cor(log(tmp$tn), tmp$year, method = 'kendall')
+```
+
+That shows similar results, but throws the significant decline at Quahog Bay
+into question (0.1 < p < 0.05) as well. That reflects the importance of one
+relatively high TN value from the early part of the record.  It may also reflect
+the sparse modeling. MBLM is unable to handle multiple predictors, so we can not
+account for season here.
+
 
