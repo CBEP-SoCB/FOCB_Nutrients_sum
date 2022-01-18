@@ -46,7 +46,7 @@ data,  data analysis code, and visualization code as used to produce
 results shared via our most recent State of Casco Bay report. Usually, these
 archives are organized into two or three folders, including the following:
 
-- `Data`  folder.  Contains data in simplified or derived form as used in our
+- Data.  Contains data in simplified or derived form as used in our
 data  analysis.  Associated metadata is contained in related Markdown documents,
 usually `DATA_SOURCES.md` and `DATA_NOTES.md`.
 
